@@ -7,21 +7,21 @@
 -- script:  lua
 
 --[[
-    TODO
-    Copyright (C) 2023  Wojciech Graj
+   TODO
+   Copyright (C) 2023  Wojciech Graj
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU Affero General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU Affero General Public License for more details.
 
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+   You should have received a copy of the GNU Affero General Public License
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 --]]
 
 --- Conventions
@@ -36,10 +36,10 @@
 -- xE[210,239] yE[21,135]: allocated pieces
 
 gc_directions = {
-   {0, -1},
-   {1, 0},
-   {0, 1},
-   {-1, 0},
+   {0, -1},  -- Up
+   {1, 0},  -- Right
+   {0, 1},  -- Down
+   {-1, 0},  -- Left
 }
 
 ----------------------------------------
@@ -73,16 +73,18 @@ function Piece.new_from_template(piece)
    self.size = piece.size
 
    local math_random = math.random
-   local color_map = {[0] = 0}
+   local color_map = {}
    for i = 1, 4 do
       color_map[i] = math_random(4) * 16
    end
 
    self:calloc()
-   for y = 1, self.size do
-      for x = 1, self.size * 4 do
-         local tile = mget(piece.rot_map_x + x - 1, piece.rot_map_y + y - 1)
-         mset(self.rot_map_x + x - 1, self.rot_map_y + y - 1, tile % 16 + color_map[tile // 16])
+   for y = 0, self.size - 1 do
+      for x = 0, self.size * 4 - 1 do
+         local tile_data = mget(piece.rot_map_x + x, piece.rot_map_y + y)
+         if tile_data ~= 0 then
+            mset(self.rot_map_x + x, self.rot_map_y + y, tile_data % 16 + color_map[tile_data // 16])
+         end
       end
    end
 
@@ -103,7 +105,7 @@ function Piece:alloc()
          end
       end
 
-      for j = i, i + self.size do
+      for j = i, i + self.size - 1 do
          mset(209, j, 1)
       end
 
@@ -123,8 +125,9 @@ end
 --- Allocate map space and clear it
 function Piece:calloc()
    self:alloc()
+
    for y = self.rot_map_y, self.rot_map_y + self.size - 1 do
-      for x = self.rot_map_x, self.rot_map_x + (self.size - 1) * 4 do
+      for x = self.rot_map_x, self.rot_map_x + self.size * 4 - 1 do
          mset(x, y, 0)
       end
    end
@@ -132,7 +135,7 @@ end
 
 --- Free map space
 function Piece:free()
-   for i = self.rot_map_y, self.rot_map_y + self.size do
+   for i = self.rot_map_y, self.rot_map_y + self.size - 1 do
       mset(209, i, 0)
    end
 end
@@ -144,21 +147,21 @@ function Piece:draw()
    map(self.rot_map_x + self.variant * self.size, self.rot_map_y, self.size, self.size, x_start + self.x * 8, self.y * 8, 0)
 end
 
-function Piece:drop()
+function Piece:can_drop()
    self.y = self.y + 1
-
-   if not self:validate() then
-      self.y = self.y - 1
-      self:place()
-      return false
-   end
-
-   return true
+   local can_drop = self:validate()
+   self.y = self.y - 1
+   return can_drop
 end
+
+function Piece:drop_unchecked()
+   self.y = self.y + 1
+end
+
+g_new_tiles = {}
 
 function Piece:place()
    local table_insert = table.insert
-   local tiles = {}
 
    for p_y = 0, self.size - 1 do
       for p_x = 0, self.size - 1 do
@@ -166,53 +169,62 @@ function Piece:place()
          if tile_data ~= 0 then
             local x = self.x + p_x
             local y = self.y + p_y
-            table_insert(tiles, {x, y, tile_data})
+            table_insert(g_new_tiles, {x, y})
             mset(x, y, tile_data)
          end
       end
    end
 
+   self:free()
+end
+
+function resolve_new_tiles()
+   local table_insert = table.insert
    local phys_tiles = {}
    local c_directions = gc_directions
    local math_pow = math.pow
-   for _, tile in ipairs(tiles) do
+   for _, tile in ipairs(g_new_tiles) do
       for i_dir = 1, 2 do
          -- Find line length
          local dir = c_directions[i_dir]
 
-         local seq_start = 0
-         while (mget(tile[1] + dir[1] * (seq_start - 1), tile[2] + dir[2] * (seq_start - 1)) // 16 == tile[3] // 16) do
-            seq_start = seq_start - 1
-         end
+         tile[3] = mget(tile[1], tile[2])
+         if tile[3] ~= 0 then
+            local seq_start = 0
+            while (mget(tile[1] + dir[1] * (seq_start - 1), tile[2] + dir[2] * (seq_start - 1)) // 16 == tile[3] // 16) do
+               seq_start = seq_start - 1
+            end
 
-         local seq_end = 0
-         while (mget(tile[1] + dir[1] * (seq_end + 1), tile[2] + dir[2] * (seq_end + 1)) // 16 == tile[3] // 16) do
-            seq_end = seq_end + 1
-         end
+            local seq_end = 0
+            while (mget(tile[1] + dir[1] * (seq_end + 1), tile[2] + dir[2] * (seq_end + 1)) // 16 == tile[3] // 16) do
+               seq_end = seq_end + 1
+            end
 
-         -- Clear line
-         if seq_end - seq_start >= 2 then
-            for i = seq_start, seq_end do
-               local x = tile[1] + dir[1] * i
-               local y = tile[2] + dir[2] * i
-               local data = mget(x, y)
+            -- Clear line
+            if seq_end - seq_start >= 2 then
+               for i = seq_start, seq_end do
+                  local x = tile[1] + dir[1] * i
+                  local y = tile[2] + dir[2] * i
+                  local data = mget(x, y)
 
-               -- Unlink tiles
-               local p2bit = 1
-               for j = 1, 4 do
-                  if data & p2bit ~= 0 then
-                     local direction = c_directions[j]
-                     local nbor_x = x + direction[1]
-                     local nbor_y = y + direction[2]
-                     mset(nbor_x, nbor_y, mget(nbor_x, nbor_y) & ~(2 ^ ((j + 1) % 4)))
-                     table_insert(phys_tiles, {nbor_x, nbor_y})
+                  -- Unlink tiles
+                  local p2bit = 1
+                  for j = 1, 4 do
+                     if data & p2bit ~= 0 then
+                        local direction = c_directions[j]
+                        local nbor_x = x + direction[1]
+                        local nbor_y = y + direction[2]
+
+                        mset(nbor_x, nbor_y, mget(nbor_x, nbor_y) & ((~(2 ^ ((j + 1) % 4))) | 0xF0)) -- TODO
+                        table_insert(phys_tiles, {nbor_x, nbor_y})
+                     end
+                     p2bit = p2bit * 2
                   end
-                  p2bit = p2bit * 2
+
+                  table_insert(phys_tiles, {x, y - 1})
+
+                  mset(x, y, 0)
                end
-
-               table_insert(phys_tiles, {x, y - 1})
-
-               mset(x, y, 0)
             end
          end
       end
@@ -269,7 +281,9 @@ function Piece:place()
       end
    end
 
-   self:free()
+   g_new_tiles = {}
+
+   return next(phys_tiles) ~= nil
 end
 
 function Piece:validate()
@@ -280,7 +294,7 @@ function Piece:validate()
                or self.x + x < 0
                or self.x + x >= 10
                or self.y + y >= 17
-            ) then
+         ) then
             return false
          end
       end
@@ -375,10 +389,28 @@ function TIC()
    if next(g_dropping_pieces) ~= nil then
       if g_drop_timer >= 200 then
          g_drop_timer = 0
-         for k, pc in pairs(g_dropping_pieces) do
-            if not pc:drop() then
-               g_dropping_pieces[k] = nil
+
+         local cnt = true
+         while (cnt) do
+            local placed = true
+            while (placed) do
+               placed = false
+               local g_dropping_pieces_old = g_dropping_pieces
+               g_dropping_pieces = {}
+               for k, pc in pairs(g_dropping_pieces_old) do
+                  if pc:can_drop() then
+                     table.insert(g_dropping_pieces, pc)
+                  else
+                     placed = true
+                     pc:place()
+                  end
+               end
             end
+            cnt = resolve_new_tiles()
+         end
+
+         for k, pc in pairs(g_dropping_pieces) do
+            pc:drop_unchecked()
          end
       end
 
@@ -386,6 +418,9 @@ function TIC()
          pc:draw()
       end
    else
+      if btnp(1) then
+         g_drop_timer = 200
+      end
       if btnp(2) then
          g_piece:move_left()
       end
@@ -401,7 +436,11 @@ function TIC()
 
       if g_drop_timer >= 200 then
          g_drop_timer = 0
-         if not g_piece:drop() then
+         if g_piece:can_drop() then
+            g_piece:drop_unchecked()
+         else
+            g_piece:place()
+            resolve_new_tiles()
             g_piece = Piece.new_random()
          end
       end
@@ -494,7 +533,7 @@ end
 -- 013:0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000061820034c10064830031c4000000000000000000000000000000000000
 -- 014:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000239400000012229100000013000000000000000000000000000000000000
 -- 015:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004100004400004300000000000000000000000000000000000000
--- 016:00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000021e28324d20023b281005284000000000000000000000000000000000000
+-- 016:00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000021e28324d20023b281007284000000000000000000000000000000000000
 -- 017:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001400001300000000001100000000000000000000000000000000000000
 -- 018:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000041000000000044000000000000000000000000000000000000
 -- 019:00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000021c20000639224c300006293000000000000000000000000000000000000
