@@ -149,6 +149,7 @@ function Piece:drop()
 
    if not self:validate() then
       self.y = self.y - 1
+      self:place()
       return false
    end
 
@@ -264,8 +265,7 @@ function Piece:place()
             mset(pc.rot_map_x + t[1] - el, pc.rot_map_y + t[2] - et, t[4])
          end
 
-         while (pc:drop()) do end
-         pc:place()
+         table_insert(g_dropping_pieces, pc)
       end
    end
 
@@ -334,6 +334,7 @@ gc_pieces = {
 function g_init(width, height)
    g_width = width
    g_height = height
+   g_dropping_pieces = {}
 
    -- Clear board
    for y = 0, height do
@@ -366,32 +367,47 @@ function TIC()
    local delta = t - g_prev_time
    g_prev_time = t
 
-   g_drop_timer = g_drop_timer + delta
-
-   if btnp(2) then
-      g_piece:move_left()
-   end
-   if btnp(3) then
-      g_piece:move_right()
-   end
-   if btnp(4) then
-      g_piece:rotate_ccw()
-   end
-   if btnp(5) then
-      g_piece:rotate_cw()
-   end
-
-   if g_drop_timer >= 200 then
-      g_drop_timer = 0
-      if not g_piece:drop() then
-         g_piece:place()
-         g_piece = Piece.new_random()
-      end
-   end
-
    cls()
    g_draw_game()
-   g_piece:draw()
+
+   g_drop_timer = g_drop_timer + delta
+
+   if next(g_dropping_pieces) ~= nil then
+      if g_drop_timer >= 200 then
+         g_drop_timer = 0
+         for k, pc in pairs(g_dropping_pieces) do
+            if not pc:drop() then
+               g_dropping_pieces[k] = nil
+            end
+         end
+      end
+
+      for k, pc in pairs(g_dropping_pieces) do
+         pc:draw()
+      end
+   else
+      if btnp(2) then
+         g_piece:move_left()
+      end
+      if btnp(3) then
+         g_piece:move_right()
+      end
+      if btnp(4) then
+         g_piece:rotate_ccw()
+      end
+      if btnp(5) then
+         g_piece:rotate_cw()
+      end
+
+      if g_drop_timer >= 200 then
+         g_drop_timer = 0
+         if not g_piece:drop() then
+            g_piece = Piece.new_random()
+         end
+      end
+
+      g_piece:draw()
+   end
 end
 
 -- <TILES>
