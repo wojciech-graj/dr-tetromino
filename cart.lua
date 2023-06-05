@@ -239,7 +239,7 @@ function resolve_tiles(tiles)
          local er = -1e9
          local et = 1e9
          local eb = -1e9
-         local linked = {{tile[1], tile[2], 0}}
+         local linked = {{tile[1], tile[2], -1}}
 
          for _, t in ipairs(linked) do
             local x = t[1]
@@ -262,6 +262,7 @@ function resolve_tiles(tiles)
             er = math_max(er, x)
             eb = math_max(eb, y)
             et = math_min(et, y)
+
             mset(x, y, 0)
          end
 
@@ -413,12 +414,12 @@ function TIC()
       end
 
       for k, pc in pairs(g_dropping_pieces) do
-         pc:draw()
-      end
+      pc:draw()
+   end
    else
       --- TODO: implement DAS
-      if btnp(1) then
-         g_drop_timer = 200
+      if btn(1) then
+         g_drop_timer = g_drop_timer + delta
       end
       if btnp(2) then
          g_piece:move_left()
