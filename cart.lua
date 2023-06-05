@@ -158,9 +158,7 @@ function Piece:drop_unchecked()
    self.y = self.y + 1
 end
 
-g_new_tiles = {}
-
-function Piece:place()
+function Piece:place(new_tiles)
    local table_insert = table.insert
 
    for p_y = 0, self.size - 1 do
@@ -169,7 +167,7 @@ function Piece:place()
          if tile_data ~= 0 then
             local x = self.x + p_x
             local y = self.y + p_y
-            table_insert(g_new_tiles, {x, y})
+            table_insert(new_tiles, {x, y})
             mset(x, y, tile_data)
          end
       end
@@ -178,12 +176,12 @@ function Piece:place()
    self:free()
 end
 
-function resolve_new_tiles()
+function resolve_tiles(tiles)
    local table_insert = table.insert
    local phys_tiles = {}
    local c_directions = gc_directions
-   local math_pow = math.pow
-   for _, tile in ipairs(g_new_tiles) do
+
+   for _, tile in ipairs(tiles) do
       for i_dir = 1, 2 do
          -- Find line length
          local dir = c_directions[i_dir]
@@ -230,12 +228,13 @@ function resolve_new_tiles()
       end
    end
 
-   -- Drop floating tiles
+   local math_max = math.max
+   local math_min = math.min
+
+   -- Transform floating tiles into pieces
    for _, tile in ipairs(phys_tiles) do
       local tile_data = mget(tile[1], tile[2])
       if tile_data ~= 0 then
-         table_insert(phys_tiles, {tile[1], tile[2] - 1})
-
          local el = 1e9
          local er = -1e9
          local et = 1e9
@@ -259,29 +258,29 @@ function resolve_new_tiles()
                p2bit = p2bit * 2
             end
 
-            el = math.min(el, x)
-            er = math.max(er, x)
-            eb = math.max(eb, y)
-            et = math.min(et, y)
+            el = math_min(el, x)
+            er = math_max(er, x)
+            eb = math_max(eb, y)
+            et = math_min(et, y)
             mset(x, y, 0)
          end
 
          er = er - el
          eb = eb - et
 
-         local sz = math.max(er, eb)
-         pc = Piece.new(el, et, sz + 1, 0, 0)
+         pc = Piece.new(el, et, math_max(er, eb) + 1, 0, 0)
          pc:calloc()
 
          for _, t in ipairs(linked) do
             mset(pc.rot_map_x + t[1] - el, pc.rot_map_y + t[2] - et, t[4])
+            if t[y] == et then
+               table_insert(phys_tiles, {t[1], t[2] - 1})
+            end
          end
 
          table_insert(g_dropping_pieces, pc)
       end
    end
-
-   g_new_tiles = {}
 
    return next(phys_tiles) ~= nil
 end
@@ -390,24 +389,23 @@ function TIC()
       if g_drop_timer >= 200 then
          g_drop_timer = 0
 
-         local cnt = true
-         while (cnt) do
-            local placed = true
-            while (placed) do
-               placed = false
+         local table_insert = table.insert
+         repeat
+            local new_tiles = {}
+            repeat
+               local placed = false
                local g_dropping_pieces_old = g_dropping_pieces
                g_dropping_pieces = {}
                for k, pc in pairs(g_dropping_pieces_old) do
                   if pc:can_drop() then
-                     table.insert(g_dropping_pieces, pc)
+                     table_insert(g_dropping_pieces, pc)
                   else
                      placed = true
-                     pc:place()
+                     pc:place(new_tiles)
                   end
                end
-            end
-            cnt = resolve_new_tiles()
-         end
+            until not placed
+         until not resolve_tiles(new_tiles)
 
          for k, pc in pairs(g_dropping_pieces) do
             pc:drop_unchecked()
@@ -418,6 +416,7 @@ function TIC()
          pc:draw()
       end
    else
+      --- TODO: implement DAS
       if btnp(1) then
          g_drop_timer = 200
       end
@@ -439,8 +438,9 @@ function TIC()
          if g_piece:can_drop() then
             g_piece:drop_unchecked()
          else
-            g_piece:place()
-            resolve_new_tiles()
+            local new_tiles = {}
+            g_piece:place(new_tiles)
+            resolve_tiles(new_tiles)
             g_piece = Piece.new_random()
          end
       end
