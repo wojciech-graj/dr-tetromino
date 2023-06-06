@@ -342,6 +342,77 @@ gc_pieces = {
 }
 
 ----------------------------------------
+-- Input -------------------------------
+----------------------------------------
+
+--- action_idx:
+-- 1: move R
+-- 2: rotate CW
+
+--- stage:
+-- 1: TODO
+
+Input = {
+   action_idx = 0,
+   dir = 0,
+   btn = 0,
+   btn_reverse = 0,
+   stage = 0,
+   stage_rem_t = 0,
+}
+Input.__index = Input
+
+function Input.new(action_idx)
+   local self = setmetatable({}, Input)
+   self.action_idx = action_idx
+   if self.action_idx == 1 then
+      self.btn = 3
+      self.btn_reverse = 2
+   else  -- if self.action_idx == 2 then
+      self.btn = 5
+      self.btn_reverse = 4
+   end
+   return self
+end
+
+function Input:process(delta)
+   local dir = (btn(self.btn) and 1 or 0) - (btn(self.btn_reverse) and 1 or 0)
+   if dir == 0 then
+      self.stage_rem_t = 0
+      self.stage = 0
+   elseif dir == self.dir then
+      self.stage_rem_t = self.stage_rem_t - delta
+   else
+      self.stage_rem_t = -1
+      self.stage = 0
+      self.dir = dir
+   end
+
+   if self.stage_rem_t < 0 then
+      if self.stage == 0 then
+         self.stage_rem_t = 267
+      else
+         self.stage_rem_t = 133
+      end
+      self.stage = self.stage + 1
+
+      if self.action_idx == 1 then
+         if dir == 1 then
+            g_piece:move_right()
+         else
+            g_piece:move_left()
+         end
+      else  -- if self.action_idx == 2 then
+         if dir == 1 then
+            g_piece:rotate_cw()
+         else
+            g_piece:rotate_ccw()
+         end
+      end
+   end
+end
+
+----------------------------------------
 -- main --------------------------------
 ----------------------------------------
 
@@ -356,6 +427,11 @@ function g_init(width, height)
          mset(x, y, 0)
       end
    end
+
+   g_inputs = {
+      Input.new(1),
+      Input.new(2),
+   }
 end
 
 function g_draw_game()
@@ -412,26 +488,13 @@ function TIC()
             pc:drop_unchecked()
          end
       end
-
-      for k, pc in pairs(g_dropping_pieces) do
-      pc:draw()
-   end
    else
-      --- TODO: implement DAS
       if btn(1) then
          g_drop_timer = g_drop_timer + delta
       end
-      if btnp(2) then
-         g_piece:move_left()
-      end
-      if btnp(3) then
-         g_piece:move_right()
-      end
-      if btnp(4) then
-         g_piece:rotate_ccw()
-      end
-      if btnp(5) then
-         g_piece:rotate_cw()
+
+      for _, inp in ipairs(g_inputs) do
+         inp:process(delta)
       end
 
       if g_drop_timer >= 200 then
@@ -447,6 +510,10 @@ function TIC()
       end
 
       g_piece:draw()
+   end
+
+   for k, pc in pairs(g_dropping_pieces) do
+      pc:draw()
    end
 end
 
