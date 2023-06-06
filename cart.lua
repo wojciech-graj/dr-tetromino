@@ -69,6 +69,9 @@ function resolve_tiles(tiles)
             end
 
             if seq_end - seq_start >= 2 then  -- If sequence is long enough
+               g_clears = g_clears + 1
+               g_drop_timer_max = calc_drop_timer()
+
                -- Clear tiles in sequence
                for i = seq_start, seq_end do
                   local x = tile[1] + dir[1] * i
@@ -154,6 +157,41 @@ function resolve_tiles(tiles)
    end
 
    return next(phys_tiles) ~= nil
+end
+
+function calc_drop_timer()
+   local level = g_clears // 10
+   if level == 0 then
+      return 800
+   elseif level == 1 then
+      return 717
+   elseif level == 2 then
+      return 633
+   elseif level == 3 then
+      return 550
+   elseif level == 4 then
+      return 467
+   elseif level == 5 then
+      return 383
+   elseif level == 6 then
+      return 300
+   elseif level == 7 then
+      return 217
+   elseif level == 8 then
+      return 133
+   elseif level == 9 then
+      return 100
+   elseif level <= 12 then
+      return 83
+   elseif level <= 15 then
+      return 67
+   elseif level <= 18 then
+      return 50
+   elseif level <= 28 then
+      return 33
+   else
+      return 17
+   end
 end
 
 ----------------------------------------
@@ -454,6 +492,10 @@ function BOOT()
    g_piece_nxt = Piece.new_random()
    g_drop_timer = 0
    g_prev_time = 0
+
+   g_clears = 70
+
+   g_drop_timer_max = calc_drop_timer()
 end
 
 function TIC()
@@ -468,7 +510,7 @@ function TIC()
    g_drop_timer = g_drop_timer + delta
 
    if next(g_dropping_pieces) ~= nil then
-      if g_drop_timer >= 200 then
+      if g_drop_timer >= g_drop_timer_max then
          g_drop_timer = 0
 
          local table_insert = table.insert
@@ -502,7 +544,7 @@ function TIC()
          inp:process(delta)
       end
 
-      if g_drop_timer >= 200 then
+      if g_drop_timer >= g_drop_timer_max then
          g_drop_timer = 0
          if g_piece:can_drop() then
             g_piece:drop_unchecked()
