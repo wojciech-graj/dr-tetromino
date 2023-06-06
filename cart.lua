@@ -43,6 +43,120 @@ gc_directions = {
 }
 
 ----------------------------------------
+-- utility functions -------------------
+----------------------------------------
+
+--- Remove lines of matching tiles and generate pieces for floating/connected tiles
+function resolve_tiles(tiles)
+   local table_insert = table.insert
+   local phys_tiles = {}
+   local c_directions = gc_directions
+
+   for _, tile in ipairs(tiles) do
+      tile[3] = mget(tile[1], tile[2])
+      if tile[3] ~= 0 then  -- If tile hasn't been resolved
+         for i_dir = 1, 2 do
+            -- Find sequence length
+            local dir = c_directions[i_dir]
+            local color_idx = tile[3] // 16
+            local seq_start = 0
+            while (mget(tile[1] + dir[1] * (seq_start - 1), tile[2] + dir[2] * (seq_start - 1)) // 16 == color_idx) do
+               seq_start = seq_start - 1
+            end
+            local seq_end = 0
+            while (mget(tile[1] + dir[1] * (seq_end + 1), tile[2] + dir[2] * (seq_end + 1)) // 16 == color_idx) do
+               seq_end = seq_end + 1
+            end
+
+            if seq_end - seq_start >= 2 then  -- If sequence is long enough
+               -- Clear tiles in sequence
+               for i = seq_start, seq_end do
+                  local x = tile[1] + dir[1] * i
+                  local y = tile[2] + dir[2] * i
+                  local data = mget(x, y)
+
+                  -- Unlink tiles
+                  local p2bit = 1
+                  for j = 1, 4 do
+                     if data & p2bit ~= 0 then
+                        local direction = c_directions[j]
+                        local nbor_x = x + direction[1]
+                        local nbor_y = y + direction[2]
+
+                        mset(nbor_x, nbor_y, mget(nbor_x, nbor_y) & ((~(2 ^ ((j + 1) % 4))) | 0xF0)) -- TODO
+                        table_insert(phys_tiles, {nbor_x, nbor_y})
+                     end
+                     p2bit = p2bit * 2
+                  end
+
+                  table_insert(phys_tiles, {x, y - 1})
+
+                  mset(x, y, 0)
+               end
+            end
+         end
+      end
+   end
+
+   local math_max = math.max
+   local math_min = math.min
+
+   -- Transform potentially-floating tiles into pieces
+   for _, tile in ipairs(phys_tiles) do
+      local tile_data = mget(tile[1], tile[2])
+      if tile_data ~= 0 then  -- If not already converted into piece
+         -- Piece extents
+         local l = 1e9
+         local r = -1e9
+         local t = 1e9
+         local b = -1e9
+
+         local linked = {{tile[1], tile[2], -1}}
+
+         -- Get all linked tiles constituting the piece
+         for _, tl in ipairs(linked) do
+            local x = tl[1]
+            local y = tl[2]
+            local data = mget(x, y)
+            tl[4] = data
+
+            local p2bit = 1
+            for j = 0, 3 do
+               if data & p2bit ~= 0 and j ~= tl[3] then
+                  local direction = c_directions[j + 1]
+                  local nbor_x = x + direction[1]
+                  local nbor_y = y + direction[2]
+                  table_insert(linked, {nbor_x, nbor_y, (j + 2) % 4})
+               end
+               p2bit = p2bit * 2
+            end
+
+            l = math_min(l, x)
+            r = math_max(r, x)
+            b = math_max(b, y)
+            t = math_min(t, y)
+
+            mset(x, y, 0)
+         end
+
+         pc = Piece.new(l, t, math_max(r - l , b - t) + 1, 0, 0)
+         pc:calloc()
+
+         for _, tl in ipairs(linked) do
+            mset(pc.rot_map_x + tl[1] - l, pc.rot_map_y + tl[2] - t, tl[4])
+            if tl[y] == t then
+               table_insert(phys_tiles, {tl[1], tl[2] - 1})
+            end
+         end
+
+         table_insert(g_dropping_pieces, pc)
+      end
+   end
+
+   return next(phys_tiles) ~= nil
+end
+
+----------------------------------------
 -- Piece -------------------------------
 ----------------------------------------
 
@@ -154,10 +268,13 @@ function Piece:can_drop()
    return can_drop
 end
 
+--- Drop a piece without checking validity of destination position
 function Piece:drop_unchecked()
    self.y = self.y + 1
 end
 
+--- Place a piece and delete it
+-- @param new_tiles table: newly placed tiles are appended to this table
 function Piece:place(new_tiles)
    local table_insert = table.insert
 
@@ -174,116 +291,6 @@ function Piece:place(new_tiles)
    end
 
    self:free()
-end
-
-function resolve_tiles(tiles)
-   local table_insert = table.insert
-   local phys_tiles = {}
-   local c_directions = gc_directions
-
-   for _, tile in ipairs(tiles) do
-      for i_dir = 1, 2 do
-         -- Find line length
-         local dir = c_directions[i_dir]
-
-         tile[3] = mget(tile[1], tile[2])
-         if tile[3] ~= 0 then
-            local seq_start = 0
-            while (mget(tile[1] + dir[1] * (seq_start - 1), tile[2] + dir[2] * (seq_start - 1)) // 16 == tile[3] // 16) do
-               seq_start = seq_start - 1
-            end
-
-            local seq_end = 0
-            while (mget(tile[1] + dir[1] * (seq_end + 1), tile[2] + dir[2] * (seq_end + 1)) // 16 == tile[3] // 16) do
-               seq_end = seq_end + 1
-            end
-
-            -- Clear line
-            if seq_end - seq_start >= 2 then
-               for i = seq_start, seq_end do
-                  local x = tile[1] + dir[1] * i
-                  local y = tile[2] + dir[2] * i
-                  local data = mget(x, y)
-
-                  -- Unlink tiles
-                  local p2bit = 1
-                  for j = 1, 4 do
-                     if data & p2bit ~= 0 then
-                        local direction = c_directions[j]
-                        local nbor_x = x + direction[1]
-                        local nbor_y = y + direction[2]
-
-                        mset(nbor_x, nbor_y, mget(nbor_x, nbor_y) & ((~(2 ^ ((j + 1) % 4))) | 0xF0)) -- TODO
-                        table_insert(phys_tiles, {nbor_x, nbor_y})
-                     end
-                     p2bit = p2bit * 2
-                  end
-
-                  table_insert(phys_tiles, {x, y - 1})
-
-                  mset(x, y, 0)
-               end
-            end
-         end
-      end
-   end
-
-   local math_max = math.max
-   local math_min = math.min
-
-   -- Transform floating tiles into pieces
-   for _, tile in ipairs(phys_tiles) do
-      local tile_data = mget(tile[1], tile[2])
-      if tile_data ~= 0 then
-         local el = 1e9
-         local er = -1e9
-         local et = 1e9
-         local eb = -1e9
-         local linked = {{tile[1], tile[2], -1}}
-
-         for _, t in ipairs(linked) do
-            local x = t[1]
-            local y = t[2]
-            local data = mget(x, y)
-            t[4] = data
-
-            local p2bit = 1
-            for j = 0, 3 do
-               if data & p2bit ~= 0 and j ~= t[3] then
-                  local direction = c_directions[j + 1]
-                  local nbor_x = x + direction[1]
-                  local nbor_y = y + direction[2]
-                  table_insert(linked, {nbor_x, nbor_y, (j + 2) % 4})
-               end
-               p2bit = p2bit * 2
-            end
-
-            el = math_min(el, x)
-            er = math_max(er, x)
-            eb = math_max(eb, y)
-            et = math_min(et, y)
-
-            mset(x, y, 0)
-         end
-
-         er = er - el
-         eb = eb - et
-
-         pc = Piece.new(el, et, math_max(er, eb) + 1, 0, 0)
-         pc:calloc()
-
-         for _, t in ipairs(linked) do
-            mset(pc.rot_map_x + t[1] - el, pc.rot_map_y + t[2] - et, t[4])
-            if t[y] == et then
-               table_insert(phys_tiles, {t[1], t[2] - 1})
-            end
-         end
-
-         table_insert(g_dropping_pieces, pc)
-      end
-   end
-
-   return next(phys_tiles) ~= nil
 end
 
 function Piece:validate()
@@ -349,15 +356,12 @@ gc_pieces = {
 -- 1: move R
 -- 2: rotate CW
 
---- stage:
--- 1: TODO
-
 Input = {
    action_idx = 0,
    dir = 0,
    btn = 0,
    btn_reverse = 0,
-   stage = 0,
+   cnt = 0,
    stage_rem_t = 0,
 }
 Input.__index = Input
@@ -379,22 +383,22 @@ function Input:process(delta)
    local dir = (btn(self.btn) and 1 or 0) - (btn(self.btn_reverse) and 1 or 0)
    if dir == 0 then
       self.stage_rem_t = 0
-      self.stage = 0
+      self.cnt = 0
    elseif dir == self.dir then
       self.stage_rem_t = self.stage_rem_t - delta
    else
       self.stage_rem_t = -1
-      self.stage = 0
+      self.cnt = 0
       self.dir = dir
    end
 
    if self.stage_rem_t < 0 then
-      if self.stage == 0 then
+      if self.cnt == 0 then
          self.stage_rem_t = 267
       else
          self.stage_rem_t = 133
       end
-      self.stage = self.stage + 1
+      self.cnt = self.cnt + 1
 
       if self.action_idx == 1 then
          if dir == 1 then
@@ -447,6 +451,7 @@ function BOOT()
    g_init(10, 17)
 
    g_piece = Piece.new_random()
+   g_piece_nxt = Piece.new_random()
    g_drop_timer = 0
    g_prev_time = 0
 end
@@ -505,7 +510,8 @@ function TIC()
             local new_tiles = {}
             g_piece:place(new_tiles)
             resolve_tiles(new_tiles)
-            g_piece = Piece.new_random()
+            g_piece = g_piece_nxt
+            g_piece_nxt = Piece.new_random()
          end
       end
 
