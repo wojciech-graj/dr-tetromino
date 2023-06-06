@@ -163,6 +163,11 @@ end
 
 function next_piece()
    g_piece = g_piece_nxt
+
+   if not g_piece:validate() then
+      g_state = 5
+   end
+
    g_piece_nxt = Piece.new_random()
 
    g_piece_nxt_offset = 0
@@ -475,9 +480,21 @@ end
 -- main --------------------------------
 ----------------------------------------
 
-function g_init(width, height)
-   g_width = width
-   g_height = height
+--- g_state:
+-- 1: title screen
+-- 2: highscores
+-- 3: options
+-- 4: game
+-- 5: end screen
+
+function g_init()
+   -- Clear board
+   for y = 0, g_height do
+      for x = 0, g_width do
+         mset(x, y, 0)
+      end
+   end
+
    g_dropping_pieces = {}
    g_piece_nxt = Piece.new_random()
    next_piece()
@@ -486,20 +503,22 @@ function g_init(width, height)
    g_drop_timer_max = calc_drop_timer()
    g_score = 0
 
-   -- Clear board
-   for y = 0, height do
-      for x = 0, width do
-         mset(x, y, 0)
-      end
-   end
-
    g_inputs = {
       Input.new(1),
       Input.new(2),
    }
 end
 
-function g_draw_game()
+function BOOT()
+   g_prev_time = 0
+   g_state = 3
+   g_width = 10
+   g_height = 17
+
+   g_init()
+end
+
+function game_process(delta)
    local width = g_width
    local height = g_height
 
@@ -520,22 +539,6 @@ function g_draw_game()
    print(string.format("CLEARS\n  %03d", g_clears), 176, 64, 15, true)
 
    print(string.format("SCORE\n%09d", g_score), 176, 92, 15, true)
-end
-
-function BOOT()
-   g_prev_time = 0
-
-   g_init(10, 17)
-end
-
-function TIC()
-   local t = time()
-   g_t = t
-   local delta = t - g_prev_time
-   g_prev_time = t
-
-   cls()
-   g_draw_game()
 
    g_drop_timer = g_drop_timer + delta
 
@@ -591,6 +594,33 @@ function TIC()
 
    for k, pc in pairs(g_dropping_pieces) do
       pc:draw()
+   end
+end
+
+function options_process(delta)
+   g_state = 4
+   g_init()
+end
+
+function end_screen_process(delta)
+   g_state = 3
+end
+
+function TIC()
+   local t = time()
+   g_t = t
+   local delta = t - g_prev_time
+   g_prev_time = t
+
+   cls()
+
+   local state = g_state
+   if state == 3 then
+      options_process(delta)
+   elseif state == 4 then
+      game_process(delta)
+   elseif state == 5 then
+      end_screen_process(delta)
    end
 end
 
