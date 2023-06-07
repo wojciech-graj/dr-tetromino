@@ -69,9 +69,12 @@ function resolve_tiles(tiles)
             end
 
             local seq_len = seq_end - seq_start + 1
-            if seq_len >= 3 then  -- If sequence is long enough
+            if seq_len >= g_min_seq_len then  -- If sequence is long enough
                g_clears = g_clears + 1
-               g_score = g_score + ((g_clears // 10) + 1) * (seq_len * (seq_len + 1) // 2)
+               if g_clears % 10 == 0 then
+                  g_level = g_level + 1
+               end
+               g_score = g_score + (g_level + 1) * (seq_len * (seq_len + 1) // 2)
                g_drop_timer_max = calc_drop_timer()
 
                -- Clear tiles in sequence
@@ -142,6 +145,8 @@ function resolve_tiles(tiles)
             t = math_min(t, y)
 
             mset(x, y, 0)
+
+            table_insert(phys_tiles, {x, y - 1})
          end
 
          pc = Piece.new(l, t, math_max(r - l , b - t) + 1, 0, 0)
@@ -182,7 +187,7 @@ function next_piece()
 end
 
 function calc_drop_timer()
-   local level = g_clears // 10
+   local level = g_level
    if level == 0 then
       return 800
    elseif level == 1 then
@@ -477,6 +482,67 @@ function Input:process(delta)
 end
 
 ----------------------------------------
+-- Option ------------------------------
+----------------------------------------
+
+Option = {
+   name = nil,
+   idx = 0,
+   vals = nil,
+}
+Option.__index = Option
+
+function Option.new(name, vals, idx)
+   local self = setmetatable({}, Option)
+   self.name = name
+   self.vals = vals
+   self.idx = idx
+   return self
+end
+
+function Option:draw(y, active)
+   print(self.name, 16, y, 15, true)
+
+   local width = print(self.vals[self.idx], 192, y, 15, true)
+
+   if active then
+      spr(2, 184, y)
+      spr(3, 192 + width, y)
+   end
+end
+
+function Option:change(dir)
+   self.idx = (self.idx - 1 + dir) % #(self.vals) + 1
+end
+
+----------------------------------------
+-- Option ------------------------------
+----------------------------------------
+
+Start = {
+}
+Start.__index = Start
+
+function Start.new()
+   local self = setmetatable({}, Start)
+   return self
+end
+
+function Start:draw(y, active)
+   local width = print("START", 16, y, 15, true)
+
+   if active then
+      spr(3, 8, y)
+      spr(2, 16 + width, y)
+   end
+end
+
+function Start:change(dir)
+   g_state = 4
+   g_init()
+end
+
+----------------------------------------
 -- main --------------------------------
 ----------------------------------------
 
@@ -499,9 +565,11 @@ function g_init()
    g_piece_nxt = Piece.new_random()
    next_piece()
    g_drop_timer = 0
-   g_clears = 70
+   g_clears = 0
+   g_level = g_options[2].vals[g_options[2].idx]
    g_drop_timer_max = calc_drop_timer()
    g_score = 0
+   g_min_seq_len = g_options[1].vals[g_options[1].idx]
 
    g_inputs = {
       Input.new(1),
@@ -514,6 +582,14 @@ function BOOT()
    g_state = 3
    g_width = 10
    g_height = 17
+
+   g_options = {
+      Option.new("LINE LENGTH", {2, 3, 4, 5}, 2),
+      Option.new("LEVEL", {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, 1),
+      Option.new("MUSIC", {"1", "2", "3", "OFF"}, 1),
+      Start.new(),
+   }
+   g_active_opt_idx = 1
 
    g_init()
 end
@@ -534,7 +610,7 @@ function game_process(delta)
    local piece = g_piece_nxt
    map(piece.rot_map_x + piece.variant * piece.size, piece.rot_map_y, piece.size, piece.size, 176, 16 - g_piece_nxt_offset * 8, 0)
 
-   print(string.format("LEVEL\n  %02d", g_clears // 10), 176, 40, 15, true)
+   print(string.format("LEVEL\n  %02d", g_level), 176, 40, 15, true)
 
    print(string.format("CLEARS\n  %03d", g_clears), 176, 64, 15, true)
 
@@ -553,7 +629,7 @@ function game_process(delta)
                local placed = false
                local g_dropping_pieces_old = g_dropping_pieces
                g_dropping_pieces = {}
-               for k, pc in pairs(g_dropping_pieces_old) do
+               for k, pc in ipairs(g_dropping_pieces_old) do
                   if pc:can_drop() then
                      table_insert(g_dropping_pieces, pc)
                   else
@@ -598,13 +674,35 @@ function game_process(delta)
 end
 
 function options_process(delta)
-   g_state = 4
-   g_init()
+   if btnp(0) then
+      g_active_opt_idx = (g_active_opt_idx + #g_options - 2) % #g_options + 1
+   end
+   if btnp(1) then
+      g_active_opt_idx = (g_active_opt_idx) % #g_options + 1
+   end
+   if btnp(2) then
+      g_options[g_active_opt_idx]:change(-1)
+   end
+   if btnp(3) then
+      g_options[g_active_opt_idx]:change(1)
+   end
+
+   local y = 48
+   for i, opt in ipairs(g_options) do
+      opt:draw(y, i == g_active_opt_idx)
+      y = y + 16
+   end
 end
 
 function end_screen_process(delta)
    g_state = 3
 end
+
+gc_processes = {
+   [3] = options_process,
+   [4] = game_process,
+   [5] = end_screen_process,
+}
 
 function TIC()
    local t = time()
@@ -614,18 +712,13 @@ function TIC()
 
    cls()
 
-   local state = g_state
-   if state == 3 then
-      options_process(delta)
-   elseif state == 4 then
-      game_process(delta)
-   elseif state == 5 then
-      end_screen_process(delta)
-   end
+   gc_processes[g_state](delta)
 end
 
 -- <TILES>
 -- 001:00000000ff0fffffff0fffffff0fffff00000000ffff0fffffff0fffffff0fff
+-- 002:0000000f000000ff00000fff000000ff0000000f000000000000000000000000
+-- 003:f0000000ff000000fff00000ff000000f0000000000000000000000000000000
 -- 016:0000000000222000024222002422222024222220222222200222220000222000
 -- 017:0000000022222220242222202422222024222220222222200222220000222000
 -- 018:0000000000222220024444202422222022222220222222200222222000222220
