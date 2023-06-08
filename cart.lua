@@ -53,12 +53,12 @@ function resolve_tiles(tiles)
    local c_directions = gc_directions
 
    for _, tile in ipairs(tiles) do
-      tile[3] = mget(tile[1], tile[2])
-      if tile[3] ~= 0 then  -- If tile hasn't been resolved
+      local tile_data = mget(tile[1], tile[2])
+      if tile_data ~= 0 then  -- If tile hasn't been resolved
+         local color_idx = tile_data // 16
          for i_dir = 1, 2 do
             -- Find sequence length
             local dir = c_directions[i_dir]
-            local color_idx = tile[3] // 16
             local seq_start = 0
             while (mget(tile[1] + dir[1] * (seq_start - 1), tile[2] + dir[2] * (seq_start - 1)) // 16 == color_idx) do
                seq_start = seq_start - 1
@@ -67,9 +67,9 @@ function resolve_tiles(tiles)
             while (mget(tile[1] + dir[1] * (seq_end + 1), tile[2] + dir[2] * (seq_end + 1)) // 16 == color_idx) do
                seq_end = seq_end + 1
             end
-
             local seq_len = seq_end - seq_start + 1
-            if seq_len >= g_min_seq_len then  -- If sequence is long enough
+
+            if seq_len >= g_min_seq_len then
                g_clears = g_clears + 1
                if g_clears % 10 == 0 then
                   g_level = g_level + 1
@@ -81,17 +81,17 @@ function resolve_tiles(tiles)
                for i = seq_start, seq_end do
                   local x = tile[1] + dir[1] * i
                   local y = tile[2] + dir[2] * i
-                  local data = mget(x, y)
+                  local tile_data_seq = mget(x, y)
 
                   -- Unlink tiles
                   local p2bit = 1
                   for j = 1, 4 do
-                     if data & p2bit ~= 0 then
+                     if tile_data_seq & p2bit ~= 0 then
                         local direction = c_directions[j]
                         local nbor_x = x + direction[1]
                         local nbor_y = y + direction[2]
 
-                        mset(nbor_x, nbor_y, mget(nbor_x, nbor_y) & ((~(2 ^ ((j + 1) % 4))) | 0xF0)) -- TODO
+                        mset(nbor_x, nbor_y, mget(nbor_x, nbor_y) & ((~(2 ^ ((j + 1) % 4))) | 0xF0))
                         table_insert(phys_tiles, {nbor_x, nbor_y})
                      end
                      p2bit = p2bit * 2
@@ -122,15 +122,15 @@ function resolve_tiles(tiles)
          local linked = {{tile[1], tile[2], -1}}
 
          -- Get all linked tiles constituting the piece
-         for _, tl in ipairs(linked) do
-            local x = tl[1]
-            local y = tl[2]
+         for _, tile_linked in ipairs(linked) do
+            local x = tile_linked[1]
+            local y = tile_linked[2]
             local data = mget(x, y)
-            tl[4] = data
+            tile_linked[4] = data
 
             local p2bit = 1
             for j = 0, 3 do
-               if data & p2bit ~= 0 and j ~= tl[3] then
+               if data & p2bit ~= 0 and j ~= tile_linked[3] then
                   local direction = c_directions[j + 1]
                   local nbor_x = x + direction[1]
                   local nbor_y = y + direction[2]
@@ -152,10 +152,10 @@ function resolve_tiles(tiles)
          pc = Piece.new(l, t, math_max(r - l , b - t) + 1, 0, 0)
          pc:calloc()
 
-         for _, tl in ipairs(linked) do
-            mset(pc.rot_map_x + tl[1] - l, pc.rot_map_y + tl[2] - t, tl[4])
-            if tl[y] == t then
-               table_insert(phys_tiles, {tl[1], tl[2] - 1})
+         for _, tile_linked in ipairs(linked) do
+            mset(pc.rot_map_x + tile_linked[1] - l, pc.rot_map_y + tile_linked[2] - t, tile_linked[4])
+            if tile_linked[y] == t then
+               table_insert(phys_tiles, {tile_linked[1], tile_linked[2] - 1})
             end
          end
 
@@ -166,19 +166,22 @@ function resolve_tiles(tiles)
    return next(phys_tiles) ~= nil
 end
 
+--- Get new piece after placing current one
 function next_piece()
-   g_piece = g_piece_nxt
+   local piece = g_piece_nxt
+   g_piece = piece
 
-   if not g_piece:validate() then
-      g_state = 5
+   if not piece:validate() then
+      g_state = 2
    end
 
-   g_piece_nxt = Piece.new_random()
+   local piece_nxt = Piece.new_random()
+   g_piece_nxt = piece_nxt
 
    g_piece_nxt_offset = 0
-   for y = 0, g_piece_nxt.size - 1 do
-      for x = 0, g_piece_nxt.size - 1 do
-         if mget(x + g_piece_nxt.rot_map_x, y + g_piece_nxt.rot_map_y) ~= 0 then
+   for y = 0, piece_nxt.size - 1 do
+      for x = 0, piece_nxt.size - 1 do
+         if mget(x + piece_nxt.rot_map_x, y + piece_nxt.rot_map_y) ~= 0 then
             g_piece_nxt_offset = y
             return
          end
@@ -252,11 +255,13 @@ function Piece.new_from_template(piece)
    self.size = piece.size
 
    local math_random = math.random
+   local stats_color = g_stats_color
+   local colors = g_colors
    local color_map = {}
    for i = 1, 4 do
-      local color_idx = math_random(g_colors)
+      local color_idx = math_random(colors)
       color_map[i] = color_idx * 16
-      g_stats_color:inc(color_idx)
+      stats_color:inc(color_idx)
    end
 
    self:calloc()
@@ -281,6 +286,7 @@ end
 --- Allocate map space
 function Piece:alloc()
    for i = 21, 135 do
+      -- Find consecutive empty rows
       for j = i, i + self.size do
          if mget(209, j) ~= 0 then
             i = j
@@ -288,6 +294,7 @@ function Piece:alloc()
          end
       end
 
+      -- Claim rows
       for j = i, i + self.size - 1 do
          mset(209, j, 1)
       end
@@ -324,10 +331,7 @@ function Piece:free()
 end
 
 function Piece:draw()
-   local width = g_width
-   local x_start = 120 - width * 4
-
-   map(self.rot_map_x + self.variant * self.size, self.rot_map_y, self.size, self.size, x_start + self.x * 8, self.y * 8, 0)
+   map(self.rot_map_x + self.variant * self.size, self.rot_map_y, self.size, self.size, 80 + self.x * 8, self.y * 8, 0)
 end
 
 function Piece:can_drop()
@@ -380,16 +384,18 @@ function Piece:validate()
 end
 
 function Piece:rotate_cw()
+   local variant = self.variant
    self.variant = (self.variant + 1) % 4
    if not self:validate() then
-      self.variant = (self.variant + 3) % 4
+      self.variant = variant
    end
 end
 
 function Piece:rotate_ccw()
+   local variant = self.variant
    self.variant = (self.variant + 3) % 4
    if not self:validate() then
-      self.variant = (self.variant + 1) % 4
+      self.variant = variant
    end
 end
 
@@ -425,6 +431,7 @@ gc_pieces = {
 -- 1: move R
 -- 2: rotate CW
 
+--- Input handler with DAS
 Input = {
    action_idx = 0,
    dir = 0,
@@ -519,8 +526,12 @@ function Option:change(dir)
    self.idx = (self.idx - 1 + dir) % #(self.vals) + 1
 end
 
+function Option:get()
+   return self.vals[self.idx]
+end
+
 ----------------------------------------
--- Option ------------------------------
+-- Start -------------------------------
 ----------------------------------------
 
 Start = {
@@ -591,35 +602,33 @@ end
 
 --- g_state:
 -- 1: title screen
--- 2: highscores
+-- 2: curtain
 -- 3: options
 -- 4: game
 -- 5: end screen
 
 function g_init()
    -- Clear board
-   for y = 0, g_height do
-      for x = 0, g_width do
+   for y = 0, 16 do
+      for x = 0, 9 do
          mset(x, y, 0)
       end
    end
 
-   g_stats_pcs = Stats.new(7, 24, 112, 96, {12, 12, 12, 12, 12, 12, 12})
-   g_colors = g_options[2].vals[g_options[2].idx]
-   g_stats_color = Stats.new(g_colors, 45, 112, 96, {3, 9, 14, 6, 1})
-   for i = 1, g_colors do
-      g_stats_color[i] = 0
-   end
+   g_min_seq_len = g_options[1]:get()
+   g_colors = g_options[2]:get()
+   g_level = g_options[3]:get()
+
+   g_stats_pcs = Stats.new(7, 24, 112, 88, {12, 12, 12, 12, 12, 12, 12})
+   g_stats_color = Stats.new(g_colors, 45, 112, 88, {3, 9, 14, 6, 1})
 
    g_dropping_pieces = {}
    g_piece_nxt = Piece.new_random()
    next_piece()
    g_drop_timer = 0
    g_clears = 0
-   g_level = g_options[3].vals[g_options[3].idx]
    g_drop_timer_max = calc_drop_timer()
    g_score = 0
-   g_min_seq_len = g_options[1].vals[g_options[1].idx]
 
    local mus = g_options[4].vals[g_options[4].idx]
    if mus ~= "OFF" then
@@ -640,8 +649,6 @@ end
 function BOOT()
    g_prev_time = 0
    g_state = 3
-   g_width = 10
-   g_height = 17
 
    g_options = {
       Option.new("LINE LENGTH", {2, 3, 4, 5}, 2),
@@ -651,42 +658,36 @@ function BOOT()
       Start.new(),
    }
    g_active_opt_idx = 1
-
-   g_init()
 end
 
 function game_process(delta)
-   local width = g_width
-   local height = g_height
+   poke(0x03FF8, 8)  -- Set border color
+   map(0, 0, 10, 17, 80, 0)  -- Draw board
 
-   local x_start = 120 - width * 4
-
-   map(0, 0, width, height, x_start, 0)
-   poke(0x03FF8, 8)
+   -- Draw left pane
    map(230, 0, 10, 17)
-   map(230, 0, 10, 17, x_start + width * 8, 0)
-
    map(225, 11 + g_colors, 5, 1, 24, 112)
-
-   local string_format = string.format
-
+   print("STATS", 24, 16, 15, true)
    g_stats_color:draw()
    g_stats_pcs:draw()
 
+   -- Draw right pane
+   local string_format = string.format
+   map(230, 0, 10, 17, 160, 0)
    print("NEXT", 188, 16, 15, true)
-   local piece = g_piece_nxt
-   map(piece.rot_map_x + piece.variant * piece.size, piece.rot_map_y, piece.size, piece.size, 200 - piece.size * 4, 24 - g_piece_nxt_offset * 8, 0)
-
+   local piece_nxt = g_piece_nxt
+   map(piece_nxt.rot_map_x + piece_nxt.variant * piece_nxt.size, piece_nxt.rot_map_y, piece_nxt.size, piece_nxt.size, 200 - piece_nxt.size * 4, 24 - g_piece_nxt_offset * 8, 0)
    print(string.format("LEVEL\n  %02d", g_level), 180, 48, 15, true)
-
    print(string.format("CLEARS\n  %03d", g_clears), 180, 72, 15, true)
-
    print(string.format("SCORE\n%07d", g_score), 180, 100, 15, true)
 
-   g_drop_timer = g_drop_timer + delta
+   local drop_timer = g_drop_timer + delta
+   g_drop_timer = drop_timer
 
-   if next(g_dropping_pieces) ~= nil then
-      if g_drop_timer >= g_drop_timer_max then
+   if g_state == 2 then
+
+   elseif next(g_dropping_pieces) ~= nil then
+      if drop_timer >= g_drop_timer_max then
          g_drop_timer = 0
 
          local table_insert = table.insert
@@ -713,14 +714,15 @@ function game_process(delta)
       end
    else
       if btn(1) then
-         g_drop_timer = g_drop_timer + delta
+         drop_timer = drop_timer + delta
+         g_drop_timer = drop_timer
       end
 
       for _, inp in ipairs(g_inputs) do
          inp:process(delta)
       end
 
-      if g_drop_timer >= g_drop_timer_max then
+      if drop_timer >= g_drop_timer_max then
          g_drop_timer = 0
          if g_piece:can_drop() then
             g_piece:drop_unchecked()
@@ -769,6 +771,7 @@ function end_screen_process(delta)
 end
 
 gc_processes = {
+   [2] = game_process,
    [3] = options_process,
    [4] = game_process,
    [5] = end_screen_process,
