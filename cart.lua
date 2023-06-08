@@ -36,10 +36,10 @@
 -- xE[210,239] yE[21,135]: allocated pieces
 
 gc_directions = {
-   {0, -1},  -- Up
-   {1, 0},  -- Right
-   {0, 1},  -- Down
-   {-1, 0},  -- Left
+   {x = 0, y = -1},  -- Up
+   {x = 1, y = 0},  -- Right
+   {x = 0, y = 1},  -- Down
+   {x = -1, y = 0},  -- Left
 }
 
 ----------------------------------------
@@ -53,18 +53,18 @@ function resolve_tiles(tiles)
    local c_directions = gc_directions
 
    for _, tile in ipairs(tiles) do
-      local tile_data = mget(tile[1], tile[2])
+      local tile_data = mget(tile.x, tile.y)
       if tile_data ~= 0 then  -- If tile hasn't been resolved
          local color_idx = tile_data // 16
          for i_dir = 1, 2 do
             -- Find sequence length
             local dir = c_directions[i_dir]
             local seq_start = 0
-            while (mget(tile[1] + dir[1] * (seq_start - 1), tile[2] + dir[2] * (seq_start - 1)) // 16 == color_idx) do
+            while (mget(tile.x + dir.x * (seq_start - 1), tile.y + dir.y * (seq_start - 1)) // 16 == color_idx) do
                seq_start = seq_start - 1
             end
             local seq_end = 0
-            while (mget(tile[1] + dir[1] * (seq_end + 1), tile[2] + dir[2] * (seq_end + 1)) // 16 == color_idx) do
+            while (mget(tile.x + dir.x * (seq_end + 1), tile.y + dir.y * (seq_end + 1)) // 16 == color_idx) do
                seq_end = seq_end + 1
             end
             local seq_len = seq_end - seq_start + 1
@@ -79,8 +79,8 @@ function resolve_tiles(tiles)
 
                -- Clear tiles in sequence
                for i = seq_start, seq_end do
-                  local x = tile[1] + dir[1] * i
-                  local y = tile[2] + dir[2] * i
+                  local x = tile.x + dir.x * i
+                  local y = tile.y + dir.y * i
                   local tile_data_seq = mget(x, y)
 
                   -- Unlink tiles
@@ -88,16 +88,16 @@ function resolve_tiles(tiles)
                   for j = 1, 4 do
                      if tile_data_seq & p2bit ~= 0 then
                         local direction = c_directions[j]
-                        local nbor_x = x + direction[1]
-                        local nbor_y = y + direction[2]
+                        local nbor_x = x + direction.x
+                        local nbor_y = y + direction.y
 
                         mset(nbor_x, nbor_y, mget(nbor_x, nbor_y) & ((~(2 ^ ((j + 1) % 4))) | 0xF0))
-                        table_insert(phys_tiles, {nbor_x, nbor_y})
+                        table_insert(phys_tiles, {x = nbor_x, y = nbor_y})
                      end
                      p2bit = p2bit * 2
                   end
 
-                  table_insert(phys_tiles, {x, y - 1})
+                  table_insert(phys_tiles, {x = x, y = y - 1})
 
                   mset(x, y, 0)
                end
@@ -111,7 +111,7 @@ function resolve_tiles(tiles)
 
    -- Transform potentially-floating tiles into pieces
    for _, tile in ipairs(phys_tiles) do
-      local tile_data = mget(tile[1], tile[2])
+      local tile_data = mget(tile.x, tile.y)
       if tile_data ~= 0 then  -- If not already converted into piece
          -- Piece extents
          local l = 1e9
@@ -119,22 +119,21 @@ function resolve_tiles(tiles)
          local t = 1e9
          local b = -1e9
 
-         local linked = {{tile[1], tile[2], -1}}
+         local linked = {{x = tile.x, y = tile.y, orig_dir = -1}}
 
          -- Get all linked tiles constituting the piece
          for _, tile_linked in ipairs(linked) do
-            local x = tile_linked[1]
-            local y = tile_linked[2]
-            local data = mget(x, y)
-            tile_linked[4] = data
+            local x = tile_linked.x
+            local y = tile_linked.y
+            tile_linked.data = mget(x, y)
 
             local p2bit = 1
             for j = 0, 3 do
-               if data & p2bit ~= 0 and j ~= tile_linked[3] then
+               if tile_linked.data & p2bit ~= 0 and j ~= tile_linked.orig_dir then
                   local direction = c_directions[j + 1]
-                  local nbor_x = x + direction[1]
-                  local nbor_y = y + direction[2]
-                  table_insert(linked, {nbor_x, nbor_y, (j + 2) % 4})
+                  local nbor_x = x + direction.x
+                  local nbor_y = y + direction.y
+                  table_insert(linked, {x = nbor_x, y = nbor_y, orig_dir = (j + 2) % 4})
                end
                p2bit = p2bit * 2
             end
@@ -146,16 +145,16 @@ function resolve_tiles(tiles)
 
             mset(x, y, 0)
 
-            table_insert(phys_tiles, {x, y - 1})
+            table_insert(phys_tiles, {x = x, y = y - 1})
          end
 
          pc = Piece.new(l, t, math_max(r - l , b - t) + 1, 0, 0)
          pc:calloc()
 
          for _, tile_linked in ipairs(linked) do
-            mset(pc.rot_map_x + tile_linked[1] - l, pc.rot_map_y + tile_linked[2] - t, tile_linked[4])
-            if tile_linked[y] == t then
-               table_insert(phys_tiles, {tile_linked[1], tile_linked[2] - 1})
+            mset(pc.rot_map_x + tile_linked.x - l, pc.rot_map_y + tile_linked.y - t, tile_linked.data)
+            if tile_linked.y == t then
+               table_insert(phys_tiles, {x = tile_linked.x, y = tile_linked.y - 1})
             end
          end
 
@@ -357,7 +356,7 @@ function Piece:place(new_tiles)
          if tile_data ~= 0 then
             local x = self.x + p_x
             local y = self.y + p_y
-            table_insert(new_tiles, {x, y})
+            table_insert(new_tiles, {x = x, y = y})
             mset(x, y, tile_data)
          end
       end
@@ -554,7 +553,42 @@ end
 
 function Start:change(dir)
    g_state = 4
-   g_init()
+
+   for y = 0, 16 do
+      for x = 0, 9 do
+         mset(x, y, 0)
+      end
+   end
+
+   g_min_seq_len = g_options[1]:get()
+   g_colors = g_options[2]:get()
+   g_level = g_options[3]:get()
+
+   g_stats_pcs = Stats.new(7, 24, 112, 88, {12, 12, 12, 12, 12, 12, 12})
+   g_stats_color = Stats.new(g_colors, 45, 112, 88, {3, 9, 14, 6, 1})
+
+   g_dropping_pieces = {}
+   g_piece_nxt = Piece.new_random()
+   next_piece()
+   g_drop_timer = 0
+   g_clears = 0
+   g_drop_timer_max = calc_drop_timer()
+   g_score = 0
+
+   local mus = g_options[4]:get()
+   if mus ~= "OFF" then
+      if mus == "KOROBEINIKI" then
+         sync(16, 0)
+      elseif mus == "TROIKA" then
+         sync(16, 1)
+      end
+      music(0, 0, 0, true, true)
+   end
+
+   g_inputs = {
+      Input.new(1),
+      Input.new(2),
+   }
 end
 
 ----------------------------------------
@@ -597,68 +631,8 @@ function Stats:inc(idx)
 end
 
 ----------------------------------------
--- main --------------------------------
+-- process -----------------------------
 ----------------------------------------
-
---- g_state:
--- 1: title screen
--- 2: curtain
--- 3: options
--- 4: game
--- 5: end screen
-
-function g_init()
-   -- Clear board
-   for y = 0, 16 do
-      for x = 0, 9 do
-         mset(x, y, 0)
-      end
-   end
-
-   g_min_seq_len = g_options[1]:get()
-   g_colors = g_options[2]:get()
-   g_level = g_options[3]:get()
-
-   g_stats_pcs = Stats.new(7, 24, 112, 88, {12, 12, 12, 12, 12, 12, 12})
-   g_stats_color = Stats.new(g_colors, 45, 112, 88, {3, 9, 14, 6, 1})
-
-   g_dropping_pieces = {}
-   g_piece_nxt = Piece.new_random()
-   next_piece()
-   g_drop_timer = 0
-   g_clears = 0
-   g_drop_timer_max = calc_drop_timer()
-   g_score = 0
-
-   local mus = g_options[4].vals[g_options[4].idx]
-   if mus ~= "OFF" then
-      if mus == "KOROBEINIKI" then
-         sync(16, 0)
-      elseif mus == "TROIKA" then
-         sync(16, 1)
-      end
-      music(0, 0, 0, true, true)
-   end
-
-   g_inputs = {
-      Input.new(1),
-      Input.new(2),
-   }
-end
-
-function BOOT()
-   g_prev_time = 0
-   g_state = 3
-
-   g_options = {
-      Option.new("LINE LENGTH", {2, 3, 4, 5}, 2),
-      Option.new("COLORS", {3, 4, 5}, 2),
-      Option.new("LEVEL", {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, 1),
-      Option.new("MUSIC", {"KOROBEINIKI", "TROIKA", "OFF"}, 1),
-      Start.new(),
-   }
-   g_active_opt_idx = 1
-end
 
 function game_process(delta)
    poke(0x03FF8, 8)  -- Set border color
@@ -776,6 +750,31 @@ gc_processes = {
    [4] = game_process,
    [5] = end_screen_process,
 }
+
+----------------------------------------
+-- main --------------------------------
+----------------------------------------
+
+--- g_state:
+-- 1: title screen
+-- 2: curtain
+-- 3: options
+-- 4: game
+-- 5: end screen
+
+function BOOT()
+   g_prev_time = 0
+   g_state = 3
+
+   g_options = {
+      Option.new("LINE LENGTH", {2, 3, 4, 5}, 2),
+      Option.new("COLORS", {3, 4, 5}, 2),
+      Option.new("LEVEL", {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, 1),
+      Option.new("MUSIC", {"KOROBEINIKI", "TROIKA", "OFF"}, 1),
+      Start.new(),
+   }
+   g_active_opt_idx = 1
+end
 
 function TIC()
    local t = time()
