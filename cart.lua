@@ -254,7 +254,9 @@ function Piece.new_from_template(piece)
    local math_random = math.random
    local color_map = {}
    for i = 1, 4 do
-      color_map[i] = math_random(g_colors) * 16
+      local color_idx = math_random(g_colors)
+      color_map[i] = color_idx * 16
+      g_stats_color:inc(color_idx)
    end
 
    self:calloc()
@@ -271,7 +273,9 @@ function Piece.new_from_template(piece)
 end
 
 function Piece.new_random()
-   return Piece.new_from_template(gc_pieces[math.random(#gc_pieces)])
+   local idx = math.random(#gc_pieces)
+   g_stats_pcs:inc(idx)
+   return Piece.new_from_template(gc_pieces[idx])
 end
 
 --- Allocate map space
@@ -405,11 +409,11 @@ end
 
 gc_pieces = {
    Piece.new(3, -2, 4, 210, 0, 2),  -- I
+   Piece.new(4, -1, 3, 210, 15, 4),  -- T
    Piece.new(4, 0, 2, 210, 4, 1),  -- O
    Piece.new(4, -1, 3, 210, 6, 4),  -- J
    Piece.new(4, -1, 3, 210, 9, 4),  -- L
    Piece.new(4, -1, 3, 210, 12, 2),  -- S
-   Piece.new(4, -1, 3, 210, 15, 4),  -- T
    Piece.new(4, -1, 3, 210, 18, 2),  -- Z
 }
 
@@ -543,6 +547,45 @@ function Start:change(dir)
 end
 
 ----------------------------------------
+-- Stats -------------------------------
+----------------------------------------
+
+Stats = {
+   vals = nil,
+   max = 0,
+   x = 0,
+   y = 0,
+   height = 0,
+}
+Stats.__index = Stats
+
+function Stats.new(n, x, y, height, colors)
+   local self = setmetatable({}, Stats)
+   self.vals = {}
+   self.colors = colors
+   for i = 1, n do
+      self.vals[i] = 0
+   end
+   self.x = x - 3
+   self.y = y
+   self.height = height
+   return self
+end
+
+function Stats:draw()
+   local sf = self.height / self.max
+   for i, v in ipairs(self.vals) do
+      rect(self.x + i * 3, self.y - v * sf // 1, 2, v * sf // 1, self.colors[i])
+   end
+end
+
+function Stats:inc(idx)
+   local v = self.vals[idx] + 1
+   self.vals[idx] = v
+   self.max = math.max(self.max, v)
+end
+
+----------------------------------------
 -- main --------------------------------
 ----------------------------------------
 
@@ -561,7 +604,13 @@ function g_init()
       end
    end
 
+   g_stats_pcs = Stats.new(7, 24, 112, 96, {12, 12, 12, 12, 12, 12, 12})
    g_colors = g_options[2].vals[g_options[2].idx]
+   g_stats_color = Stats.new(g_colors, 45, 112, 96, {3, 9, 14, 6, 1})
+   for i = 1, g_colors do
+      g_stats_color[i] = 0
+   end
+
    g_dropping_pieces = {}
    g_piece_nxt = Piece.new_random()
    next_piece()
@@ -611,15 +660,18 @@ function game_process(delta)
 
    local string_format = string.format
 
+   g_stats_color:draw()
+   g_stats_pcs:draw()
+
    print("NEXT", 188, 16, 15, true)
    local piece = g_piece_nxt
-   map(piece.rot_map_x + piece.variant * piece.size, piece.rot_map_y, piece.size, piece.size, 192, 24 - g_piece_nxt_offset * 8, 0)
+   map(piece.rot_map_x + piece.variant * piece.size, piece.rot_map_y, piece.size, piece.size, 200 - piece.size * 4, 24 - g_piece_nxt_offset * 8, 0)
 
-   print(string.format("LEVEL\n  %02d", g_level), 188, 40, 15, true)
+   print(string.format("LEVEL\n  %02d", g_level), 180, 48, 15, true)
 
-   print(string.format("CLEARS\n  %03d", g_clears), 184, 64, 15, true)
+   print(string.format("CLEARS\n  %03d", g_clears), 180, 72, 15, true)
 
-   print(string.format("SCORE\n%07d", g_score), 180, 92, 15, true)
+   print(string.format("SCORE\n%07d", g_score), 180, 100, 15, true)
 
    g_drop_timer = g_drop_timer + delta
 
@@ -803,12 +855,12 @@ end
 -- 093:0000000011111110111114101111420011114200111142001111141011111110
 -- 094:0000000011000110142224101144411011111110111111101111111011111110
 -- 095:0000000011111110111111101111111011111110111111101111111011111110
--- 195:900e0000900e0000000000000000000000000000000000000000000000000000
--- 208:c00c00ccc00cc0ccc00c0000c000000000000000000000000000000000000000
--- 209:00c0c00c00c0c00c0cc0cc000000000000000000000000000000000000000000
--- 210:000c0300c0cc0300c0c000000000000000000000000000000000000000000000
--- 211:900e0060900e0060000000000000000000000000000000000000000000000000
--- 212:0100000001000000000000000000000000000000000000000000000000000000
+-- 195:0000000000000000900e0000900e000000000000000000000000000000000000
+-- 208:0000000000000000c00c00ccc00cc0ccc00c0000c00000000000000000000000
+-- 209:000000000000000000c0c00c00c0c00c0cc0cc00000000000000000000000000
+-- 210:0000000000000000000c0300c0cc0300c0c00000000000000000000000000000
+-- 211:0000000000000000900e0060900e006000000000000000000000000000000000
+-- 212:0000000000000000010000000100000000000000000000000000000000000000
 -- 225:0088999900889999008899990088999900889999008899990088999900889999
 -- 226:0000000000000000aaaaaaaaaaaaaaaa99999999999999999999999999999999
 -- 227:9999aa009999aa009999aaaa9999aaaa99999999999999999999999999999999
