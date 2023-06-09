@@ -178,14 +178,11 @@ function resolve_tiles(tiles)
             table_insert(phys_tiles, {x = x, y = y - 1})
          end
 
-         pc = Piece.new(l, t, math_max(r - l , b - t) + 1, 0, 0)
+         pc = Piece.new(l, t, math_max(r - l, b - t) + 1, 0, 0)
          pc:calloc()
 
          for _, tile_linked in ipairs(linked) do
             mset(pc.rot_map_x + tile_linked.x - l, pc.rot_map_y + tile_linked.y - t, tile_linked.data)
-            if tile_linked.y == t then
-               table_insert(phys_tiles, {x = tile_linked.x, y = tile_linked.y - 1})
-            end
          end
 
          table_insert(g_dropping_pieces, pc)
@@ -682,13 +679,11 @@ function curtain_process(delta)
 end
 
 function game_process(delta)
-   draw_game()
-
    local drop_timer = g_drop_timer + delta
    g_drop_timer = drop_timer
 
    if next(g_dropping_pieces) ~= nil then
-      if drop_timer >= g_drop_timer_max then
+      if drop_timer >= g_drop_timer_max // 2 then
          g_drop_timer = 0
 
          local table_insert = table.insert
@@ -713,7 +708,13 @@ function game_process(delta)
             pc:drop_unchecked()
          end
       end
+
+      draw_game()
    else
+      if g_piece == nil then
+         next_piece()
+      end
+
       if btn(1) then
          drop_timer = drop_timer + delta
          g_drop_timer = drop_timer
@@ -731,11 +732,16 @@ function game_process(delta)
             local new_tiles = {}
             g_piece:place(new_tiles)
             resolve_tiles(new_tiles)
-            next_piece()
+            g_piece = nil
          end
       end
 
-      g_piece:draw()
+      draw_game()
+
+
+      if g_piece ~= nil then
+         g_piece:draw()
+      end
    end
 
    for k, pc in pairs(g_dropping_pieces) do
@@ -771,7 +777,12 @@ function end_screen_process(delta)
    g_state = 3
 end
 
+function title_process(delta)
+
+end
+
 gc_processes = {
+   [1] = title_process,
    [2] = curtain_process,
    [3] = options_process,
    [4] = game_process,
@@ -782,13 +793,6 @@ gc_processes = {
 -- main --------------------------------
 ----------------------------------------
 
---- g_state:
--- 1: title screen
--- 2: curtain
--- 3: options
--- 4: game
--- 5: end screen
-
 function BOOT()
    g_prev_time = 0
    g_state = 3
@@ -796,7 +800,7 @@ function BOOT()
    g_options = {
       Option.new("LINE LENGTH", {2, 3, 4, 5}, 2),
       Option.new("COLORS", {3, 4, 5}, 2),
-      Option.new("LEVEL", {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, 1),
+      Option.new("LEVEL", {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, 3),
       Option.new("MUSIC", {"KOROBEINIKI", "TROIKA", "OFF"}, 1),
       Start.new(),
    }
