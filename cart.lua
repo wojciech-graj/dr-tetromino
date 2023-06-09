@@ -136,11 +136,17 @@ function resolve_tiles(tiles)
       end
    end
 
+   if next(phys_tiles) == nil then
+      return false
+   end
+
    local math_max = math.max
    local math_min = math.min
 
    -- Transform potentially-floating tiles into pieces
-   for _, tile in ipairs(phys_tiles) do
+   local phys_tile_idx = 1
+   while phys_tile_idx <= #phys_tiles do
+      local tile = phys_tiles[phys_tile_idx]
       local tile_data = mget(tile.x, tile.y)
       if tile_data ~= 0 then  -- If not already converted into piece
          -- Piece extents
@@ -149,21 +155,32 @@ function resolve_tiles(tiles)
          local t = 1e9
          local b = -1e9
 
-         local linked = {{x = tile.x, y = tile.y, orig_dir = -1}}
+         local linked = {{x = tile.x, y = tile.y}}
 
          -- Get all linked tiles constituting the piece
-         for _, tile_linked in ipairs(linked) do
+         local linked_idx = 1
+         while linked_idx <= #linked do
+            local tile_linked = linked[linked_idx]
             local x = tile_linked.x
             local y = tile_linked.y
             tile_linked.data = mget(x, y)
 
             local p2bit = 1
-            for j = 0, 3 do
-               if tile_linked.data & p2bit ~= 0 and j ~= tile_linked.orig_dir then
-                  local direction = c_directions[j + 1]
+            for j = 1, 4 do
+               if tile_linked.data & p2bit ~= 0 then
+                  local direction = c_directions[j]
                   local nbor_x = x + direction.x
                   local nbor_y = y + direction.y
-                  table_insert(linked, {x = nbor_x, y = nbor_y, orig_dir = (j + 2) % 4})
+
+                  -- Check for duplicates in case of loop
+                  for i = 1, #linked do
+                     local t = linked[i]
+                     if t.y == nbor_y and t.x == nbor_x then
+                        goto continue
+                     end
+                  end
+                  table_insert(linked, {x = nbor_x, y = nbor_y})
+                  ::continue::
                end
                p2bit = p2bit * 2
             end
@@ -176,6 +193,8 @@ function resolve_tiles(tiles)
             mset(x, y, 0)
 
             table_insert(phys_tiles, {x = x, y = y - 1})
+
+            linked_idx = linked_idx + 1
          end
 
          pc = Piece.new(l, t, math_max(r - l, b - t) + 1, 0, 0)
@@ -187,9 +206,10 @@ function resolve_tiles(tiles)
 
          table_insert(g_dropping_pieces, pc)
       end
+      phys_tile_idx = phys_tile_idx + 1
    end
 
-   return next(phys_tiles) ~= nil
+   return true
 end
 
 --- Get new piece after placing current one
