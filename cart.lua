@@ -42,9 +42,39 @@ gc_directions = {
    {x = -1, y = 0},  -- Left
 }
 
+gc_colors = {
+   3,
+   9,
+   14,
+   6,
+   1
+}
+
 ----------------------------------------
 -- utility functions -------------------
 ----------------------------------------
+
+function draw_game()
+   poke(0x03FF8, 8)  -- Set border color
+   map(0, 0, 10, 17, 80, 0)  -- Draw board
+
+   -- Draw left pane
+   map(230, 0, 10, 17)
+   map(225, 11 + g_colors, 5, 1, 24, 112)
+   print("STATS", 24, 16, 15, true)
+   g_stats_color:draw()
+   g_stats_pcs:draw()
+
+   -- Draw right pane
+   local string_format = string.format
+   map(230, 0, 10, 17, 160, 0)
+   print("NEXT", 188, 16, 15, true)
+   local piece_nxt = g_piece_nxt
+   map(piece_nxt.rot_map_x + piece_nxt.variant * piece_nxt.size, piece_nxt.rot_map_y, piece_nxt.size, piece_nxt.size, 200 - piece_nxt.size * 4, 24 - g_piece_nxt_offset * 8, 0)
+   print(string.format("LEVEL\n  %02d", g_level), 180, 48, 15, true)
+   print(string.format("CLEARS\n  %03d", g_clears), 180, 72, 15, true)
+   print(string.format("SCORE\n%07d", g_score), 180, 100, 15, true)
+end
 
 --- Remove lines of matching tiles and generate pieces for floating/connected tiles
 function resolve_tiles(tiles)
@@ -565,7 +595,7 @@ function Start:change(dir)
    g_level = g_options[3]:get()
 
    g_stats_pcs = Stats.new(7, 24, 112, 88, {12, 12, 12, 12, 12, 12, 12})
-   g_stats_color = Stats.new(g_colors, 45, 112, 88, {3, 9, 14, 6, 1})
+   g_stats_color = Stats.new(g_colors, 45, 112, 88, gc_colors)
 
    g_dropping_pieces = {}
    g_piece_nxt = Piece.new_random()
@@ -634,33 +664,30 @@ end
 -- process -----------------------------
 ----------------------------------------
 
-function game_process(delta)
-   poke(0x03FF8, 8)  -- Set border color
-   map(0, 0, 10, 17, 80, 0)  -- Draw board
-
-   -- Draw left pane
-   map(230, 0, 10, 17)
-   map(225, 11 + g_colors, 5, 1, 24, 112)
-   print("STATS", 24, 16, 15, true)
-   g_stats_color:draw()
-   g_stats_pcs:draw()
-
-   -- Draw right pane
-   local string_format = string.format
-   map(230, 0, 10, 17, 160, 0)
-   print("NEXT", 188, 16, 15, true)
-   local piece_nxt = g_piece_nxt
-   map(piece_nxt.rot_map_x + piece_nxt.variant * piece_nxt.size, piece_nxt.rot_map_y, piece_nxt.size, piece_nxt.size, 200 - piece_nxt.size * 4, 24 - g_piece_nxt_offset * 8, 0)
-   print(string.format("LEVEL\n  %02d", g_level), 180, 48, 15, true)
-   print(string.format("CLEARS\n  %03d", g_clears), 180, 72, 15, true)
-   print(string.format("SCORE\n%07d", g_score), 180, 100, 15, true)
+function curtain_process(delta)
+   draw_game()
 
    local drop_timer = g_drop_timer + delta
    g_drop_timer = drop_timer
 
-   if g_state == 2 then
+   if drop_timer > 2000 then
+      g_state = 3
+      return
+   end
 
-   elseif next(g_dropping_pieces) ~= nil then
+   local colors = gc_colors
+   for y = 0, drop_timer * 34 // 2000 do
+      rect(80, y * 4, 80, 4, colors[y % #colors])
+   end
+end
+
+function game_process(delta)
+   draw_game()
+
+   local drop_timer = g_drop_timer + delta
+   g_drop_timer = drop_timer
+
+   if next(g_dropping_pieces) ~= nil then
       if drop_timer >= g_drop_timer_max then
          g_drop_timer = 0
 
@@ -745,7 +772,7 @@ function end_screen_process(delta)
 end
 
 gc_processes = {
-   [2] = game_process,
+   [2] = curtain_process,
    [3] = options_process,
    [4] = game_process,
    [5] = end_screen_process,
