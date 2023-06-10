@@ -54,6 +54,56 @@ gc_colors = {
 -- utility functions -------------------
 ----------------------------------------
 
+function set_state(state)
+   g_state = state
+
+   if state == 1 then
+      g_colors = 5
+      g_drop_timer = 0
+      g_dropping_pieces = {}
+   elseif state == 3 then
+      g_active_opt_idx = 1
+   elseif state == 4 then
+      for y = 0, 16 do
+         for x = 0, 9 do
+            mset(x, y, 0)
+         end
+      end
+
+      g_min_seq_len = g_options[1]:get()
+      g_colors = g_options[2]:get()
+      g_level = g_options[3]:get()
+
+      g_stats_pcs = Stats.new(7, 24, 112, 88, {12, 12, 12, 12, 12, 12, 12})
+      g_stats_color = Stats.new(g_colors, 45, 112, 88, gc_colors)
+
+      g_dropping_pieces = {}
+      g_piece_nxt = Piece.new_random()
+      next_piece()
+      g_drop_timer = 0
+      g_clears = 0
+      g_drop_timer_max = calc_drop_timer()
+      g_score = 0
+
+      local mus = g_options[4]:get()
+      if mus ~= "OFF" then
+         if mus == "KOROBEINIKI" then
+            sync(16, 0)
+         elseif mus == "TROIKA" then
+            sync(16, 1)
+         end
+         music(0, 0, 0, true, true)
+      end
+
+      g_inputs = {
+         Input.new(1),
+         Input.new(2),
+      }
+   elseif state == 5 then
+      music()
+   end
+end
+
 function draw_game()
    poke(0x03FF8, 8)  -- Set border color
    map(0, 0, 10, 17, 80, 0)  -- Draw board
@@ -219,7 +269,7 @@ function next_piece()
 
    if not piece:validate() then
       piece:free()
-      g_state = 2
+      set_state(2)
    end
 
    local piece_nxt = Piece.new_random()
@@ -605,43 +655,7 @@ function Start:draw(y, active)
 end
 
 function Start:change(dir)
-   g_state = 4
-
-   for y = 0, 16 do
-      for x = 0, 9 do
-         mset(x, y, 0)
-      end
-   end
-
-   g_min_seq_len = g_options[1]:get()
-   g_colors = g_options[2]:get()
-   g_level = g_options[3]:get()
-
-   g_stats_pcs = Stats.new(7, 24, 112, 88, {12, 12, 12, 12, 12, 12, 12})
-   g_stats_color = Stats.new(g_colors, 45, 112, 88, gc_colors)
-
-   g_dropping_pieces = {}
-   g_piece_nxt = Piece.new_random()
-   next_piece()
-   g_drop_timer = 0
-   g_clears = 0
-   g_drop_timer_max = calc_drop_timer()
-   g_score = 0
-
-   local mus = g_options[4]:get()
-   if mus ~= "OFF" then
-      if mus == "KOROBEINIKI" then
-         sync(16, 0)
-      elseif mus == "TROIKA" then
-         sync(16, 1)
-      end
-      music(0, 0, 0, true, true)
-   end
-
-   g_inputs = {
-      Input.new(1),
-      Input.new(2),
-   }
+   set_state(4)
 end
 
 ----------------------------------------
@@ -694,7 +708,7 @@ function curtain_process(delta)
    g_drop_timer = drop_timer
 
    if drop_timer > 2000 then
-      g_state = 1
+      set_state(1)
       return
    end
 
@@ -799,8 +813,7 @@ function options_process(delta)
 end
 
 function end_screen_process(delta)
-   music()
-   g_state = 1
+   set_state(1)
 end
 
 function title_process(delta)
@@ -845,8 +858,7 @@ function title_process(delta)
       for _, pc in ipairs(g_dropping_pieces) do
          pc:free()
       end
-      g_state = 3
-      g_active_opt_idx = 1
+      set_state(3)
    end
 end
 
@@ -863,13 +875,9 @@ gc_processes = {
 ----------------------------------------
 
 function BOOT()
-   g_colors = 5
-   g_drop_timer = 0
+   set_state(1)
 
    g_prev_time = 0
-   g_state = 1
-
-   g_dropping_pieces = {}
 
    g_options = {
       Option.new("LINE LENGTH", {2, 3, 4, 5}, 2),
