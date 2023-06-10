@@ -218,6 +218,7 @@ function next_piece()
    g_piece = piece
 
    if not piece:validate() then
+      piece:free()
       g_state = 2
    end
 
@@ -307,7 +308,9 @@ function Piece.new_from_template(piece)
    for i = 1, 4 do
       local color_idx = math_random(colors)
       color_map[i] = color_idx * 16
-      stats_color:inc(color_idx)
+      if stats_color ~= nil then
+         stats_color:inc(color_idx)
+      end
    end
 
    self:calloc()
@@ -325,7 +328,10 @@ end
 
 function Piece.new_random()
    local idx = math.random(#gc_pieces)
-   g_stats_pcs:inc(idx)
+   local stats_pcs = g_stats_pcs
+   if stats_pcs ~= nil then
+      stats_pcs:inc(idx)
+   end
    return Piece.new_from_template(gc_pieces[idx])
 end
 
@@ -333,7 +339,7 @@ end
 function Piece:alloc()
    for i = 21, 135 do
       -- Find consecutive empty rows
-      for j = i, i + self.size do
+      for j = i, i + self.size - 1 do
          if mget(209, j) ~= 0 then
             i = j
             goto continue
@@ -688,7 +694,7 @@ function curtain_process(delta)
    g_drop_timer = drop_timer
 
    if drop_timer > 2000 then
-      g_state = 3
+      g_state = 1
       return
    end
 
@@ -794,16 +800,54 @@ end
 
 function end_screen_process(delta)
    music()
-   g_state = 3
+   g_state = 1
 end
 
 function title_process(delta)
-   map(180, 0)
-   map(150, 0, 23, 6, 28, 16)
+   local dropping_pieces_old = g_dropping_pieces
+
+   local table_insert = table.insert
+   if math.random() < .15 then
+      local math_random = math.random
+      local pc = Piece.new_random()
+      pc.variant = math_random(1, 3)
+      pc.x = math_random(-8, 18 - pc.size)
+      table_insert(dropping_pieces_old, pc)
+   end
+
+   for _, pc in ipairs(dropping_pieces_old) do
+      pc:draw()
+   end
+
+   g_drop_timer = g_drop_timer + delta
+   if g_drop_timer >= 50 then
+      g_drop_timer = 0
+      local dropping_pieces = {}
+      g_dropping_pieces = dropping_pieces
+      for _, pc in ipairs(dropping_pieces_old) do
+         pc:drop_unchecked()
+         if pc.y > 16 then
+            pc:free()
+         else
+            table_insert(dropping_pieces, pc)
+         end
+      end
+   end
+
+   map(180, 0, 30, 17, 0, 0, 0)
+   map(150, 0, 23, 6, 28, 16, 0)
    if (g_t // 500) % 2 == 0 then
       print("PRESS ANY BUTTON TO BEGIN", 52, 96, 2)
    end
    print("(c) Wojciech Graj 2023", 62, 112, 4)
+
+   if btn() ~= 0 then
+      for _, pc in ipairs(g_dropping_pieces) do
+         pc:free()
+      end
+      g_state = 3
+      g_active_opt_idx = 1
+   end
 end
 
 gc_processes = {
@@ -819,8 +863,13 @@ gc_processes = {
 ----------------------------------------
 
 function BOOT()
+   g_colors = 5
+   g_drop_timer = 0
+
    g_prev_time = 0
    g_state = 1
+
+   g_dropping_pieces = {}
 
    g_options = {
       Option.new("LINE LENGTH", {2, 3, 4, 5}, 2),
@@ -829,7 +878,6 @@ function BOOT()
       Option.new("MUSIC", {"KOROBEINIKI", "TROIKA", "OFF"}, 1),
       Start.new(),
    }
-   g_active_opt_idx = 1
 end
 
 function TIC()
@@ -844,6 +892,7 @@ function TIC()
 end
 
 -- <TILES>
+-- 001:2222222222222222222222222222222222222222222222222222222222222222
 -- 002:0000000f000000ff00000fff000000ff0000000f000000000000000000000000
 -- 003:f0000000ff000000fff00000ff000000f0000000000000000000000000000000
 -- 016:0000000000333000024333003433333034333330333333300333330000333000
