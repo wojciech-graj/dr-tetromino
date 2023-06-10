@@ -1,13 +1,13 @@
--- title:   TODO
+-- title:   Dr. Tetromino
 -- author:  Wojciech Graj
--- desc:    TODO
--- site:    TODO
+-- desc:    A tile-matching block-dropping game
+-- site:    https://github.com/wojciech-graj/dr-tetromino
 -- license: AGPL-3.0-or-later
 -- version: 0.0
 -- script:  lua
 
 --[[
-   TODO
+   Dr. Tetromino - A tile-matching block-dropping game
    Copyright (C) 2023  Wojciech Graj
 
    This program is free software: you can redistribute it and/or modify
@@ -61,6 +61,8 @@ function set_state(state)
       g_colors = 5
       g_drop_timer = 0
       g_dropping_pieces = {}
+      g_stats_pcs = nil
+      g_stats_color = nil
    elseif state == 3 then
       g_active_opt_idx = 1
    elseif state == 4 then
@@ -404,7 +406,7 @@ function Piece:alloc()
       self.rot_map_x = 210
       self.rot_map_y = i
       do
-         return nil
+         return
       end
 
       ::continue::
@@ -707,14 +709,17 @@ function curtain_process(delta)
    local drop_timer = g_drop_timer + delta
    g_drop_timer = drop_timer
 
-   if drop_timer > 2000 then
-      set_state(1)
-      return
+   local colors = gc_colors
+   for y = 0, math.min(drop_timer * 34 // 2000, 134) do
+      rect(80, y * 4, 80, 4, colors[y % #colors])
    end
 
-   local colors = gc_colors
-   for y = 0, drop_timer * 34 // 2000 do
-      rect(80, y * 4, 80, 4, colors[y % #colors])
+   if drop_timer > 2000 then
+      print("PRESS ANY\nBUTTON\nTO CONTINUE", 92, 112, 12)
+      if btnp() ~= 0 then
+         set_state(5)
+      end
+      return
    end
 end
 
@@ -777,7 +782,6 @@ function game_process(delta)
       end
 
       draw_game()
-
 
       if g_piece ~= nil then
          g_piece:draw()
@@ -854,7 +858,7 @@ function title_process(delta)
    end
    print("(c) Wojciech Graj 2023", 62, 112, 4)
 
-   if btn() ~= 0 then
+   if btnp() ~= 0 then
       for _, pc in ipairs(g_dropping_pieces) do
          pc:free()
       end
